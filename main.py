@@ -1,8 +1,5 @@
-from black import color_diff
-import click
-import py
 import pygame
-import math, json
+import math, json, os
 from pprint import pprint
 import logging
 
@@ -15,7 +12,7 @@ logger = logging.getLogger("shooting_game")
 logger.setLevel(logging.DEBUG)
 # create console handler and set level to debug
 ch = logging.StreamHandler()
-ch.setLevel(logging.DEBUG)
+ch.setLevel(logging.INFO)
 # create formatter
 formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 # add formatter to ch
@@ -36,31 +33,47 @@ def initialise_enemy(targets_type):
 
 def reset_stats():
     global menu, time_elapsed, total_shot, good_shots, ammo, total_ammo, time_remaining, score, counter, targets_type, enemy_coordinates
-    good_shots, total_shot, ammo, total_ammo = 0, 0, 81, 81
-    time_remaining, time_elapsed, score, counter = 100, 0, 0, 1
+    good_shots, total_shot, ammo, total_ammo = 0, 0, 5, 5 # TODO change back to 81
+    time_remaining, time_elapsed, score, counter = 10, 0, 0, 1 # TODO change time remaining
     enemy_coordinates = initialise_enemy(targets_type)
 
+
+def initialise_sounds():
+    global plate_sound, bird_sound,laser_sound
+    pygame.mixer.init()
+    pygame.mixer.music.load("assets/sounds/bg_music.mp3")
+    plate_sound = pygame.mixer.Sound("assets/sounds/Broken plates.wav")
+    plate_sound.set_volume(.2)
+    bird_sound = pygame.mixer.Sound("assets/sounds/Drill Gear.mp3")
+    bird_sound.set_volume(.2)
+    laser_sound = pygame.mixer.Sound("assets/sounds/Laser gun.wav")
+    laser_sound.set_volume(.3)
+    pygame.mixer.music.play()
 
 pygame.init()
 timer = pygame.time.Clock()
 font = pygame.font.Font("assets/font/myFont.ttf", 32)
+big_font = pygame.font.Font("assets/font/myFont.ttf", 72)
 screen = pygame.display.set_mode([WIDTH, HEIGHT])
 
+initialise_sounds()
+
+
+
 background, banners, guns, targets = [], [], [], [[], [], []]
+# targets_type = {1: [2, 1, 1], 2: [2, 1, 1], 3: [2, 1, 1, 1]}
 targets_type = {1: [10, 5, 3], 2: [12, 8, 5], 3: [15, 12, 8, 3]}
 level = 0
-# score = 0
-# total_shot, good_shots = 0, 0
-# ammo = total_ammo = 100
-# counter = 1
-# time_elapsed = 0
-# time_remaining = 100
 shot = False
 # 0-Freeplay, 1-Accuracy, 2-timed
 mode = 0
 reset_stats()
 menu, game_over, pause, clicked = True, False, True, False
-best_score = {"freeplay": 0, "timed": 0, "accuracy": 0}
+if os.path.exists("best_score.json"):
+    with open("best_score.json", "r") as json_file:
+        best_score = json.load(json_file)
+else:
+    best_score = {"freeplay": 0, "timed": 0, "accuracy": 0}
 menu_img = pygame.image.load(f"assets/menus/mainMenu.png")
 game_over_img = pygame.image.load(f"assets/menus/gameOver.png")
 pause_img = pygame.image.load(f"assets/menus/pause.png")
@@ -128,7 +141,12 @@ def check_shot(targets, coords):
                 coords[i].pop(j)
                 score += 10 * (i ** 2 + 1)
                 hit_target = True
-                # TODO add sound for enemy hit
+                if level == 1:
+                    bird_sound.play()
+                elif level == 2:
+                    plate_sound.play()
+                elif level ==3:
+                    laser_sound.play()
     return coords, hit_target
 
 
@@ -162,30 +180,48 @@ def draw_menu():
     screen.blit(font.render(f'{best_score["freeplay"]}', True, "black"), (340, 580))
     screen.blit(font.render(f'{best_score["accuracy"]}', True, "black"), (650, 580))
     screen.blit(font.render(f'{best_score["timed"]}', True, "black"), (350, 710))
-    # TODO check if OK for the reset
-    reset_stats()
     if freeplay_button.collidepoint(mouse_pos) and clicks[0] and not clicked:
         mode = 0
-        level = 1
-        menu = False
-        clicked = True
+        reset_game()
     if ammo_button.collidepoint(mouse_pos) and clicks[0] and not clicked:
         mode = 1
-        level = 1
-        menu = False
-        clicked = True
+        reset_game()
     if timed_button.collidepoint(mouse_pos) and clicks[0] and not clicked:
         mode = 2
-        level = 1
-        menu = False
-        clicked = True
+        reset_game()
     if reset_button.collidepoint(mouse_pos) and clicks[0] and not clicked:
         best_score = {"freeplay": 0, "timed": 0, "accuracy": 0}
         clicked = True
 
 
+def reset_game():
+    global level, menu, clicked
+    level = 1
+    menu = False
+    clicked = True
+    # TODO check if OK for the reset
+    reset_stats()
+
+
 def draw_game_over():
-    pass
+    global clicked, run, menu, pause
+    screen.blit(game_over_img, (0, 0))
+    if mode == 0: 
+        display_score = time_elapsed
+    else:
+        display_score = score
+    mouse_pos = pygame.mouse.get_pos()
+    clicks = pygame.mouse.get_pressed()
+    exit_button = pygame.rect.Rect((170, 661), (260, 100))
+    menu_button = pygame.rect.Rect((475, 661), (260, 100))
+    screen.blit(big_font.render(f'{display_score}', True,'black'), (650, 578))
+    if menu_button.collidepoint(mouse_pos) and clicks[0] and not clicked:
+        menu = True
+        pause = False
+        clicked = True
+    if exit_button.collidepoint(mouse_pos) and clicks[0] and not clicked:
+        run = False
+    
 
 
 def draw_pause():
@@ -202,11 +238,17 @@ def draw_pause():
     if menu_button.collidepoint(mouse_pos) and clicks[0] and not clicked:
         menu = True
         pause = False
-        reset_stats()
         clicked = True
 
 
 run = True
+def write_score_to_file(best_score):
+    # Serializing json
+    json_object = json.dumps(best_score, indent=4)
+            # Writing to best_score.json
+    with open("best_score.json", "w") as outfile:
+        outfile.write(json_object)
+
 while run:
     timer.tick(FPS)
 
@@ -242,15 +284,26 @@ while run:
             shot = False
             if hit_target:
                 good_shots += 1
-            # print(f'{score=}')
-        # print(f'{len(rects[3])=}')
 
         if not any(target_boxes) and level < 3:
             level += 1
+        elif (
+            (not any(target_boxes) and level == 3) or (mode == 1 and ammo == 0) or (mode == 2 and time_remaining <= 0)
+        ):
+            draw_game_over()
+            game_over = True
+            if mode == 0 and (time_elapsed < best_score["freeplay"] or best_score["freeplay"] == 0):
+                best_score["freeplay"] = time_elapsed
+            if mode == 1 and score > best_score["accuracy"]:
+                best_score["accuracy"] = score
+            if mode == 2 and score > best_score["timed"]:
+                best_score["timed"] = score
+            
 
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             run = False
+            write_score_to_file(best_score)
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             mouse_position = pygame.mouse.get_pos()
             if (0 < mouse_position[0] < WIDTH) and (0 < mouse_position[1] < HEIGHT - BANNER_HEIGHT):
